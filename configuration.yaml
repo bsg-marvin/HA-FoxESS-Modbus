@@ -44,28 +44,43 @@ template:
 
 # Utility Meters - not required, may be useful
 utility_meter:
-  solar_production_front_um_daily:
-    source: sensor.solar_front_energy
-    cycle: daily
-  solar_production_rear_um_daily:
-    source: sensor.solar_rear_energy
-    cycle: daily    
-  solar_production_front_um_monthly:
-    source: sensor.solar_front_energy
-    cycle: monthly
-  solar_production_rear_um_monthly:
-    source: sensor.solar_rear_energy
-    cycle: monthly
+    daily_pv1_sum:
+        source: sensor.pv1_sum
+        cycle: daily
+    monthly_pv1_sum:
+        source: sensor.pv1_sum
+        cycle: monthly
+    yearly_pv1_sum:
+        source: sensor.pv1_sum
+        cycle: yearly
+        
+template:
+  - sensor:
+      name: "Solar Power Daily"
+      unit_of_measurement: "kWh"
+      state: "{{ states('sensor.daily_pv1_sum') | float }}"
+  - sensor:
+      name: "Solar Power Now"
+      unit_of_measurement: "kW"
+      state: "{{ states('sensor.foxess_pv1_power') | float  }}"
+  - sensor:
+      name: "Solar Power Monthly"
+      unit_of_measurement: "kWh"
+      state: "{{ states('sensor.monthly_pv1_sum') | float }}"
+  - sensor:
+      name: "Solar Power Yearly"
+      unit_of_measurement: "kWh"
+      state: "{{ states('sensor.yearly_pv1_sum') | float }}"
+  - sensor:
+      name: "Solar Power Total"
+      unit_of_measurement: "kWh"
+      state: "{{ states('sensor.total_pv1_sum') | float }}"
+              
 
 # These sensors are used in the HA Energy dashboard
 sensor:   
   - platform: integration
-    name: "Solar Array 2 Energy"
-    source: sensor.pv2_power
-    unit_time: h
-    round: 2
-  - platform: integration
-    name: "Solar Array 1 Energy"
+    name: "Solar Energy"
     source: sensor.pv1_power
     unit_time: h
     round: 2
@@ -81,3 +96,66 @@ sensor:
     unit_time: h
     round: 2
     method: left  
+
+## Setup Better Solar Tracking Sensors that resolve negative solar tracking  
+  - platform: integration
+    source: sensor.foxess_pv1_power
+    name: pv1_sum
+    unit_time: h
+    round: 2
+    
+## Setup additional sensors for current load, average load and baseloadload      
+  - platform: template
+    sensors:
+      battery_hrs_average:
+        friendly_name: "Battery life based on average load"
+        value_template: >
+          {% if (states('sensor.foxess_bat_soc') in ['unknown', 'unavailable'])%}
+          {{ states('sensor.battery_hrs_average') }}
+          {% else %}
+          {{ ((states('sensor.foxess_bat_soc') | float - 10) / 100 * 18.2 / 11 * 24) | round(1) }}
+          {% endif %}
+        unit_of_measurement: "hours"
+      battery_hrs_instant:
+        friendly_name: "Battery life based on current load"
+        value_template: >
+          {% if (states('sensor.foxess_bat_soc') in ['unknown', 'unavailable'])%}
+          {{ states('sensor.battery_hrs_instant') }}
+          {% else %}
+          {{ ((states('sensor.foxess_bat_soc') | float - 10) / 100 * 18.2 / states('sensor.foxess_load_power') | float) | round(1) }}
+          {% endif %}
+        unit_of_measurement: "hours"
+      battery_energy:
+        friendly_name: "Battery stored energy"
+        value_template: >
+          {% if (states('sensor.foxess_bat_soc') in ['unknown', 'unavailable'])%}
+          {{ states('sensor.battery_energy') }}
+          {% else %}
+          {{ ((states('sensor.foxess_bat_soc') | float) / 100 * 18.2) | round(1) }}
+          {% endif %}
+        unit_of_measurement: "kWh"
+      battery_hrs_baseload:
+        friendly_name: "Battery life based on baseload"
+        value_template: >
+          {% if (states('sensor.foxess_bat_soc') in ['unknown', 'unavailable'])%}
+          {{ states('sensor.battery_hrs_instant') }}
+          {% else %}
+          {{ ((states('sensor.foxess_bat_soc') | float - 10) / 100 * 18.2 / 0.5 | float) | round(1) }}
+          {% endif %}
+        unit_of_measurement: "hours"
+
+## Export earnings sensor  
+  - platform: template
+    sensors:
+      export_monetized:
+        friendly_name: "Export earning"
+        value_template: "{{ (((states('sensor.foxess_feedin') | float | round(2))) * 0.04) }}"
+        unit_of_measurement: '£'
+        
+  - platform: integration
+    source: sensor.foxess_feedin
+    name: feedin_sum
+    unit_time: h
+    round: 2
+    
+    
